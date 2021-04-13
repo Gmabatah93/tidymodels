@@ -1,75 +1,71 @@
+library(tidyr)
 library(dplyr)
-library(ggplot2)
-theme_set(theme_minimal())
 library(tidymodels)
+theme_set(theme_minimal())
 
-# Data
-data(ames, package = "modeldata")
+# Data ----
+home_sales <- readRDS(file = "Data/home_sales.rds") %>% as_tibble()
 
-# EDA
-ames %>% 
-  ggplot(aes(Sale_Price)) +
-  geom_histogram(bins = 50) +
-  scale_x_log10()
+# Data Resampling: (rsamples) ----
+# - split
+home_split <- initial_split(home_sales, 
+                            prop = 0.7,
+                            strata = selling_price)
+home_train <- home_split %>% training()
+home_test <- home_split %>% testing()
 
-ames <- ames %>% mutate(Sale_Price_Log10 = log10(Sale_Price))
 
-# MODELING
+#
+# Feature Engineering ----
+# Model Fitting: (parsnip) ----
 
-# Preprocess
-set.seed(123)
-# - split: Simple Random Sample
-ames_split_srs <- initial_split(ames, prop = 0.80)
-# - split: Stratified Sample
-ames_split_str <- initial_split(ames, prop = 0.8, strata = Sale_Price_Log10)
-# - train
-ames_train <- training(ames_split_str)
-ames_test <- testing(ames_split_str)
-
-# Feature Engineering
-ames_recipe <- 
-  recipe(Sale_Price_Log10 ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type,
-         data = ames_train) %>% 
-  step_log(Gr_Liv_Area, base = 10) %>%
-  step_other(Neighborhood, threshold = 0.01) %>% 
-  step_dummy(all_nominal()) %>% 
-  step_interact( ~ Gr_Liv_Area:starts_with("Bldg_Type_") ) %>% 
-  step_ns(Latitude, Longitude, deg_free = 20)
-
-simple_ames <- prep(ames_recipe, training = ames_train)
-
-# Fit
-linear_reg() %>% 
-  set_engine("lm") %>%  translate()
-
+# Linear Regression
+# - fit
 lm_mod <- 
   linear_reg() %>% 
-  set_engine("lm")
+  set_engine("lm") %>% 
+  set_mode("regression")
 
-lm_form_fit <- 
+lm_fit <- 
   lm_mod %>% 
-  fit(Sale_Price_Log10 ~ Latitude + Longitude, data = ames_train)
-
-lm_form_fit %>%
-  pluck("fit") %>% 
-  summary()
-
-lm_form_fit %>% tidy()
-
-ames_test %>% 
-  select(Sale_Price_Log10) %>% 
-  bind_cols(predict(lm_form_fit, ames_test)) %>% 
-  bind_cols(predict(lm_form_fit, ames_test, type = "pred_int"))
-
-# Workflow
-lm_wflow <- workflow() %>% 
-  add_model(lm_mod) %>% 
-  add_formula(Sale_Price_Log10 ~ Latitude + Longitude)
-
-# - fit
-lm_fit <- fit(lm_wflow, data = ames_train)
-
-lm_wflow %>% 
-  remove_formula() %>% 
-  add_recipe(simple_ames)
-
+  fit(selling_price ~ home_age + sqft_living, 
+      data = home_train)
+# - final
+lm_final <- 
+  lm_mod %>% 
+  last_fit(selling_price ~ ., split = home_split)
+# - prediction
+lm_test_results <- home_test %>% 
+  select(selling_price, home_age, sqft_living) %>% 
+  mutate(lm_pred = lm_fit %>% predict(home_test) %>% pull)
+#
+# Model Tuning ----
+# Model Evaluation: (yardstick) ----
+# Linear Regression
+lm_test_results
+# - evaluation
+lm_test_results %>% rmse(truth = selling_price, estimate = lm_pred)
+lm_test_results %>% rsq(truth = selling_price, estimate = lm_pred)
+# - visual
+lm_test_results %>% 
+  ggplot(aes(selling_price, lm_pred)) +
+  geom_point(alpha = 0.5) + geom_abline(color = "purple", linetype = 2) +
+  coord_obs_pred() +
+  labs(
+    title = "Evaluation",
+    x = "Actual",
+    y = "Predicted"
+  ) +
+  theme_bw()
+# - final evaluation
+lm_final %>% 
+  collect_predictions() %>% 
+  ggplot(aes(selling_price, .pred)) +
+  geom_point(alpha = 0.5) + geom_abline(color = "red", linetype = 2) +
+  coord_obs_pred() +
+  labs(
+    title = "Final: Evaluation",
+    x = "Actual",
+    y = "Predicted"
+  ) +
+  theme_bw()
