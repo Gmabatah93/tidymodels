@@ -27,7 +27,33 @@ telecom_train <- telecom_split %>% training()
 telecom_test <- telecom_split %>% testing()
 
 #
-# FEATURE ENGINEERING ----
+# FEATURE ENGINEERING: (recipes) ----
+# Telcom ====
+
+# EDA
+telecom_train %>% skimr::skim()
+telecom_train %>% select_if(is.double) %>% 
+  cor() %>% 
+  corrplot::corrplot(method = "number", type = "upper")
+
+# Recipe
+telecom_recipe <- 
+  recipe(canceled_service ~ ., data = telecom_train) %>% 
+  step_log(avg_call_mins, avg_intl_mins, base = 10) %>% 
+  step_corr(all_numeric(), threshold = 0.8) %>% 
+  step_normalize(all_numeric()) %>% 
+  step_dummy(all_nominal(), -all_outcomes())
+# - train
+telecom_recipe_prep <- 
+  telecom_recipe %>% 
+  prep(training = telecom_train)
+# - apply
+telecom_train_prep <- telecom_recipe_prep %>% 
+  bake(new_data = NULL)
+telecom_test_prep <- telecom_recipe_prep %>% 
+  bake(new_data = telecom_test)
+
+#
 # MODEL FITTING: (parsnip) ----
 # Linear Regression: Home Sales ====
 # - fit
@@ -58,10 +84,17 @@ log_fit <-
       data = telecom_train)
 log_fit %>% tidy()
 # - final
-log_final <- 
+log_fit_2 <- 
   log_model %>% 
   last_fit(canceled_service ~ avg_call_mins + avg_intl_mins + monthly_charges + months_with_company,
            split = telecom_split)
+
+
+# Workflow
+log_fit_prep_full <- 
+  log_model %>% 
+  fit(canceled_service ~ ., data = telecom_train_prep)
+
 #
 # MODEL TUNING ----
 # MODEL EVALUATION: (yardstick) ----
@@ -126,14 +159,21 @@ telecom_results %>%
   autoplot()
 telecom_results %>% roc_auc(truth = canceled_service, estimate = log_prob)
 
-# - FINAL evaluation
-telecom_final_results <- log_final %>% collect_predictions()
-log_final %>% collect_metrics()
+# FINAL evaluation
+telecom_fit_2_results <- log_fit_2 %>% collect_predictions()
 
-telecom_final_metrics <- metric_set(accuracy, sens, spec, roc_auc)
-telecom_final_results %>% telecom_final_metrics(truth = canceled_service, 
+telecom_fit_2_metrics <- metric_set(accuracy, sens, spec, roc_auc)
+telecom_fit_2_metrics %>% telecom_final_metrics(truth = canceled_service, 
                                                 estimate = .pred_class, .pred_yes)
+telecom_fit_2_results %>% conf_mat(truth = canceled_service, estimate = .pred_class) %>% summary()
 
-
+# Workflow Evaluation
+# - prediction
+telecom_prep_results <- telecom_test_prep %>% 
+  select(canceled_service) %>% 
+  mutate(pred = log_fit %>% predict(telecom_test, type = "class") %>% pull,
+         prob = log_fit %>% predict(telecom_test, type = "prob") %>% pull(.pred_yes))
+# - confusion matrix
+telecom_prep_results %>% conf_mat(truth = canceled_service, estimate = pred) %>% summary()
 
 
