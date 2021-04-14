@@ -3,13 +3,11 @@ library(dplyr)
 library(tidymodels)
 theme_set(theme_minimal())
 
-# DATA ----
-home_sales <- readRDS(file = "Data/home_sales.rds") %>% as_tibble()
-telecom <- readRDS("Data/telecom_df.rds") %>% as_tibble()
-leads <- readRDS("Data/leads_df.rds") %>% as_tibble()
-#
 # RESAMPLING: (rsamples) ----
 # Home Sales ====
+# DATA
+home_sales <- readRDS(file = "Data/home_sales.rds") %>% as_tibble()
+# EDA
 # - split
 home_split <- initial_split(home_sales, 
                             prop = 0.7,
@@ -18,6 +16,15 @@ home_train <- home_split %>% training()
 home_test <- home_split %>% testing()
 
 # Telecom ====
+
+# Data
+telecom <- readRDS("Data/telecom_df.rds") %>% as_tibble()
+# EDA
+telecom_train %>% skimr::skim()
+telecom_train %>% select_if(is.double) %>% 
+  cor() %>% 
+  corrplot::corrplot(method = "number", type = "upper")
+
 # - split
 telecom_split <- initial_split(telecom,
                                prop = 0.75,
@@ -27,14 +34,25 @@ telecom_train <- telecom_split %>% training()
 telecom_test <- telecom_split %>% testing()
 
 #
+# Loans ====
+# Data
+loans <- readRDS("Data/loan_df.rds")
+# EDA
+loans %>% skimr::skim()
+loans %>% select_if(is.numeric) %>% 
+  cor()
+# - split
+loans_split <- initial_split(loans,
+                             strata = loan_default)
+
+loans_train <- loans_split %>% training()
+loans_test <- loans_split %>% testing()
+# - resample
+set.seed(123)
+loans_fold <- loans_train %>% 
+  vfold_cv(v = 5, strata = loan_default)
 # FEATURE ENGINEERING: (recipes) ----
 # Telcom ====
-
-# EDA
-telecom_train %>% skimr::skim()
-telecom_train %>% select_if(is.double) %>% 
-  cor() %>% 
-  corrplot::corrplot(method = "number", type = "upper")
 
 # Recipe
 telecom_recipe <- 
@@ -54,14 +72,23 @@ telecom_test_prep <- telecom_recipe_prep %>%
   bake(new_data = telecom_test)
 
 #
-# MODEL FITTING: (parsnip) ----
-# Linear Regression: Home Sales ====
-# - fit
+# Loans ====
+loans_recipe <- 
+  recipe(loan_default ~ ., data = loans_train) %>% 
+  step_corr(all_numeric(), threshold = 0.85) %>% 
+  step_normalize(all_numeric()) %>% 
+  step_dummy(all_nominal(), -all_outcomes())
+# MODEL SPEC: (parsnip) ----
+# Loans: Decision Tree ====
+
+# MODEL FITTING: (workflows | tune) ----
+# Home Sales: Linear Regression  ====
+# - spec
 lm_mod <- 
   linear_reg() %>% 
   set_engine("lm") %>% 
   set_mode("regression")
-
+# - fit
 lm_fit <- 
   lm_mod %>% 
   fit(selling_price ~ home_age + sqft_living, 
@@ -71,8 +98,8 @@ lm_final <-
   lm_mod %>% 
   last_fit(selling_price ~ ., split = home_split)
 #
-# Logistic Regression: Telecom ====
-# - fit
+# Telecom: Logistic Regression ====
+# - spec
 log_model <- 
   logistic_reg() %>% 
   set_engine("glm") %>% 
@@ -96,9 +123,82 @@ log_fit_prep_full <-
   fit(canceled_service ~ ., data = telecom_train_prep)
 
 #
-# MODEL TUNING ----
+# Loans: Decision Tree ====
+
+# Spec
+loan_dt_model <- 
+  decision_tree(
+    cost_complexity = tune(),
+    tree_depth = tune(),
+    min_n = tune()
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Workflow
+loans_dt_wflow <- 
+  workflow() %>% 
+  # model spec
+  add_model(loan_dt_model) %>% 
+  # recipe
+  add_recipe(loans_recipe)
+
+# Hyperparameter
+set.seed(123)
+# - grid
+loans_dt_grid <- 
+  grid_random(parameters(loan_dt_model),
+              size = 5)
+
+# Fit
+loans_dt_fit <- 
+  loans_dt_wflow %>% 
+  tune_grid(resamples = loans_fold,
+            grid = loans_dt_grid,
+            metric = loans_metrics)
+# - metric
+loans_metrics <- metric_set(roc_auc, sens, spec)
+# - refit
+loans_dt_resample <- 
+  loans_dt_wflow %>% 
+  fit_resamples(resamples = loans_fold, 
+                metrics = loans_metrics)
+# FINAL
+# - hyperparameter
+loans_dt_best <- 
+  loans_dt_fit %>% 
+  select_best(metric = "roc_auc")
+# - workflow
+loans_dt_wflow_final <- 
+  loans_dt_wflow %>% 
+  finalize_workflow(loans_dt_best)
+# - fit
+loans_dt_final <-
+  loans_dt_final_wflow %>% 
+  last_fit(split = loans_split)
+  
+
+# Loans: Logistic Regression ====
+# Spec
+loans_log_model <- 
+  logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+# Workflow 
+loans_log_wflow <- 
+  workflow() %>% 
+  add_model(loans_log_model) %>% 
+  add_recipe(loans_recipe)
+
+# Fit
+# - resamples
+loans_log_resample <- 
+  loans_log_wflow %>% 
+  fit_resamples(resamples = loans_fold,
+                metrics = loans_metrics)
+
 # MODEL EVALUATION: (yardstick) ----
-# Linear Regression: Home Sales ====
+# Home Sales: Linear Regression ====
 # - prediction
 home_sales_results <- home_test %>% 
   select(selling_price, home_age, sqft_living) %>% 
@@ -135,7 +235,7 @@ lm_final %>%
 
 
 
-# Logistic Regression: Telecom ====
+# Telecom: Logistic Regression ====
 # - prediction
 telecom_results <- telecom_test %>% 
   select(canceled_service) %>% 
@@ -177,3 +277,33 @@ telecom_prep_results <- telecom_test_prep %>%
 telecom_prep_results %>% conf_mat(truth = canceled_service, estimate = pred) %>% summary()
 
 
+
+# Loans: Decision Tree ====
+
+# Decision Tree
+# - fit
+loans_dt_fit %>% collect_metrics()
+loans_dt_fit %>% show_best(metric = "roc_auc")
+# - resample
+loans_dt_resample %>% collect_metrics()
+# - fianl
+loans_dt_final %>% collect_metrics()
+
+# Logistic Regression
+# - resample
+loans_log_resample %>% collect_metrics()
+
+# Results
+loans_dt_resample %>% 
+  collect_metrics(summarize = FALSE) %>% 
+  group_by(.metric) %>% 
+  summarise(min = min(.estimate),
+            median = median(.estimate),
+            max = max(.estimate))
+
+loans_log_resample %>% 
+  collect_metrics(summarize = FALSE) %>% 
+  group_by(.metric) %>% 
+  summarise(min = min(.estimate),
+            median = median(.estimate),
+            max = max(.estimate))
