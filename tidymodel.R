@@ -4,6 +4,19 @@ library(tidymodels)
 theme_set(theme_minimal())
 
 # RESAMPLING: (rsamples) ----
+# Ames Housing ====
+# DATA
+data(ames)
+# EDA
+ames %>% skimr::skim()
+ames %>% select_if(is.numeric) %>% 
+  cor() %>% 
+  ggcorrplot::ggcorrplot(type = "lower")
+# Split
+ames_split <- ames %>% initial_split(prop = 0.8)
+ames_train <- ames_split %>% training()
+ames_test <- ames_split %>% testing()
+#
 # Home Sales ====
 # DATA
 home_sales <- readRDS(file = "Data/home_sales.rds") %>% as_tibble()
@@ -78,9 +91,6 @@ loans_recipe <-
   step_corr(all_numeric(), threshold = 0.85) %>% 
   step_normalize(all_numeric()) %>% 
   step_dummy(all_nominal(), -all_outcomes())
-# MODEL SPEC: (parsnip) ----
-# Loans: Decision Tree ====
-
 # MODEL FITTING: (workflows | tune) ----
 # Home Sales: Linear Regression  ====
 # - spec
@@ -198,7 +208,7 @@ loans_log_resample <-
                 metrics = loans_metrics)
 
 # MODEL EVALUATION: (yardstick) ----
-# Home Sales: Linear Regression ====
+# Home Sales ====
 # - prediction
 home_sales_results <- home_test %>% 
   select(selling_price, home_age, sqft_living) %>% 
@@ -235,7 +245,7 @@ lm_final %>%
 
 
 
-# Telecom: Logistic Regression ====
+# Telecom ====
 # - prediction
 telecom_results <- telecom_test %>% 
   select(canceled_service) %>% 
@@ -278,7 +288,7 @@ telecom_prep_results %>% conf_mat(truth = canceled_service, estimate = pred) %>%
 
 
 
-# Loans: Decision Tree ====
+# Loans ====
 
 # Decision Tree
 # - fit

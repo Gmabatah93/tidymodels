@@ -43,3 +43,20 @@ vfold_cv() | randomly splits the data into V groups of roughly equal size (calle
 mc_cv() | One resample of Monte Carlo cross-validation takes a random sample (without replacement) of the original data set to be used for analysis. All other data points are added to the assessment set. | data, prop, times, strata, breaks
 validation_split() | takes a single random sample (without replacement) of the original data set to be used for analysis. All other data points are added to the assessment set (to be used as the validation set) | data, prop, strata, breaks
 bootstraps() | A bootstrap sample is a sample that is the same size as the original data set that is made using replacement | data, times, strata, breaks
+
+# Feature Engineering
+- Correlation between predictors
+- missing values
+- Distribution
+- Center and Scale
+
+#### Functions
+
+Function | Description | Parameters
+--- | --- | ---
+recipe() | A recipe is a description of what steps should be applied to a data set in order to get it ready for data analysis | formula, data
+prep() | Train a Data Recipe | x, training, verbose, retain
+bake() | Apply a Trained Data Recipe | object, new_data
+step_log() | creates a specification of a recipe step that will log transform data | recipe, base, columns
+step_dummy() | dummy variable creation | recipe, one_hot, naming
+step_normalize | Center and Scale numeric data | recipe
