@@ -69,3 +69,9 @@ step_downsample() | Down-Sample a Data Set Based on a Factor Variable | recipe, 
 step_upsample() | Up-Sample a Data Set Based on a Factor Variable | recipe, over_ratio, target, skip
 
 # Model Fitting
+
+
+#### Functions
+
+Function | Description | Parameters
+--- | --- | ---

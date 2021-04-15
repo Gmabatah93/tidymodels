@@ -242,6 +242,13 @@ loans_log_resample <-
   fit_resamples(resamples = loans_fold,
                 metrics = loans_metrics)
 
+# Ames Housing: Linear Regression ====
+# - spec
+ames_lm_model <- 
+  linear_reg() %>% 
+  set_engine("lm")
+
+#
 # MODEL EVALUATION: (yardstick) ----
 # Home Sales ====
 # - prediction
