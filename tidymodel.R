@@ -12,6 +12,25 @@ ames %>% skimr::skim()
 ames %>% select_if(is.numeric) %>% 
   cor() %>% 
   ggcorrplot::ggcorrplot(type = "lower")
+# - Sales Price
+ames %>% 
+  ggplot(aes(Sale_Price)) +
+  geom_histogram(bins = 100)
+# - General Living Area
+ames %>% 
+  ggplot(aes(Gr_Liv_Area)) +
+  geom_histogram(bins = 100)
+
+ames %>% 
+  ggplot(aes(Gr_Liv_Area, Sale_Price)) +
+  geom_point(alpha = 0.2) +
+  geom_smooth(aes(color = Bldg_Type),
+              method = "lm", se = FALSE)
+# - Neighborhood
+ames %>% 
+  count(Neighborhood) %>% 
+  ggplot(aes(n, Neighborhood)) +
+    geom_col()
 # Split
 ames_split <- ames %>% initial_split(prop = 0.8)
 ames_train <- ames_split %>% training()
@@ -91,6 +110,22 @@ loans_recipe <-
   step_corr(all_numeric(), threshold = 0.85) %>% 
   step_normalize(all_numeric()) %>% 
   step_dummy(all_nominal(), -all_outcomes())
+# Ames Housing ====
+ames_recipe <- 
+  recipe(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type,
+         data = ames_train) %>% 
+  step_log(Gr_Liv_Area, base = 10) %>% 
+  step_other(Neighborhood, threshold = 0.01) %>% 
+  step_dummy(all_nominal()) %>% 
+  step_interact(~Gr_Liv_Area:starts_with("Bldg_Type_"))
+  
+
+ames_prep <- 
+  ames_recipe %>% 
+  prep(training = ames_train)
+
+ames_prep %>% bake(new_data = NULL)
+
 # MODEL FITTING: (workflows | tune) ----
 # Home Sales: Linear Regression  ====
 # - spec

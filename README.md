@@ -49,6 +49,7 @@ bootstraps() | A bootstrap sample is a sample that is the same size as the origi
 - missing values
 - Distribution
 - Center and Scale
+- Feature Extraction
 
 #### Functions
 
@@ -60,3 +61,11 @@ bake() | Apply a Trained Data Recipe | object, new_data
 step_log() | creates a specification of a recipe step that will log transform data | recipe, base, columns
 step_dummy() | dummy variable creation | recipe, one_hot, naming
 step_normalize | Center and Scale numeric data | recipe
+step_unknown() | Assign missing categories to "unknown" | recipe, new_level
+step_other() | creates a specification of a recipe step that will potentially pool infrequently occurring values into an "other" category | recipe, threshold
+step_interact() | creates interaction variables | recipe, terms
+step_filter() | creates a specification of a recipe step that will remove rows using dplyr::filter(). | recipe, inputs
+step_downsample() | Down-Sample a Data Set Based on a Factor Variable | recipe, under_ratio, target, skip
+step_upsample() | Up-Sample a Data Set Based on a Factor Variable | recipe, over_ratio, target, skip
+
+# Model Fitting
