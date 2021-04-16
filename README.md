@@ -84,3 +84,17 @@ decision_tree() | General Interface for Decision Tree Models | cost_complexity, 
 rand_forest() | General Interface for Random Forest Models | mtry, trees, min_n
 boost_tree() | General Interface for Boosted Trees | mtry, trees, min_n, tree_depth, learn_rate, loss_reduction, sample_size, stor_iter
 surv_reg() | General Interface for Parametric Survival Models | dist
+
+# Model Evaluation
+> Bias is the difference between the true data pattern and the types of patterns that the model can emulate. Many black-box machine learning models have low bias. Other models (such as linear/logistic regression, discriminant analysis, and others) are not as adaptable and are considered high-bias models.
+
+#### Functions
+
+Function | Description | Parameters
+--- | --- | ---
+metric_set() | Combine metric functions | names of the functions to be included in the metric set
+rmse() | Root mean squared error | truth, estimate
+rsq() | R squared | truth, estimate
+mae() | Mean absolute error | truth, estimate
+conf_mat() | Confusion Matrix for Categorical Data | truth, estimate, dnn
+accuracy() | Accuracy | truth, estimate

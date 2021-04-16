@@ -8,6 +8,7 @@ library(workflowsets)
 # Ames Housing ====
 # DATA
 data(ames)
+
 # EDA
 ames %>% skimr::skim()
 ames %>% select_if(is.numeric) %>% 
@@ -32,10 +33,19 @@ ames %>%
   count(Neighborhood) %>% 
   ggplot(aes(n, Neighborhood)) +
     geom_col()
+
 # Split
 ames_split <- ames %>% initial_split(prop = 0.8)
 ames_train <- ames_split %>% training()
 ames_test <- ames_split %>% testing()
+
+# Resample
+# - Validation
+ames_val <- ames_train %>% validation_split(prop = 3/4)
+# - 10 Fold
+ames_folds <- ames_train %>% vfold_cv(v = 10)
+
+
 #
 # Home Sales ====
 # DATA
@@ -276,6 +286,7 @@ location_models <-
   location_models %>%
   mutate(fit = map2(info, wflow_id, ~ fit(.x$workflow[[1]], ames_train)))#
 location_models
+
 #
 # Ames Housing: Decision Tree ====
 # - spec
@@ -289,6 +300,85 @@ ames_dt_fit <-
   fit(Sale_Price ~ Longitude + Latitude, data = ames_train)
 
 #
+# Ames Housing: Random Forrest ====
+# - spec
+ames_rf_model <- 
+  rand_forest(
+    trees = 1000
+  ) %>% 
+  set_engine("ranger") %>% 
+  set_mode("regression")
+
+# Workflow
+ames_rf_wflow <- 
+  workflow() %>% 
+  add_formula(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + Latitude + Longitude) %>% 
+  add_model(ames_rf_model)
+# - fit
+ames_rf_fit <- 
+  ames_rf_wflow %>% 
+  fit(data = ames_train)
+
+# Resamples: Validation
+rf_resample_val <- 
+  ames_rf_wflow %>% 
+  fit_resamples(resamples = ames_val)
+# - metrics
+rf_resample_val %>% collect_metrics()
+# Resamples: 10 Fold
+set.seed(123)
+ames_keep_pred <- control_resamples(save_pred = TRUE, save_workflow = TRUE)
+
+rf_resample_10Fold <- 
+  ames_rf_wflow %>% 
+  fit_resamples(resamples = ames_folds, control = ames_keep_pred)
+# - metrics
+rf_resample_10Fold %>% collect_metrics()
+rf_resample_10Fold %>% collect_predictions() %>% 
+  ggplot(aes(Sale_Price, .pred)) +
+  geom_point(alpha = 0.5) + geom_abline(color = "red") +
+  coord_obs_pred() +
+  theme_bw()
+#
+# Ames Housing: EXTRA ====
+# - Recipe
+ames_basic_recipe <- 
+  recipe(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + 
+           Latitude + Longitude, data = ames_train) %>%
+  step_log(Gr_Liv_Area, base = 10) %>% 
+  step_other(Neighborhood, threshold = 0.01) %>% 
+  step_dummy(all_nominal())
+
+ames_interaction_recipe <- 
+  ames_basic_recipe %>% 
+  step_interact( ~ Gr_Liv_Area:starts_with("Bldg_Type_") ) 
+
+ames_spline_recipe <- 
+  ames_interaction_rec %>% 
+  step_ns(Latitude, Longitude, deg_free = 50)
+# - Preprocess
+ames_preproc <- 
+  list(basic = ames_basic_recipe, 
+       interact = ames_interaction_recipe, 
+       splines = ames_spline_recipe
+  )
+# - Fit
+ames_lm_models <- workflow_set(ames_preproc, list(lm = ames_lm_model), cross = FALSE)
+ames_lm_models <- 
+  ames_lm_models %>% 
+  workflow_map("fit_resamples",
+               seed = 1101, verbose = TRUE,
+               resamples = ames_folds, control = ames_keep_pred)
+# - Eval
+ames_lm_models %>% 
+  collect_metrics() %>% 
+  filter(.metric == "rmse")
+# - Add Random Forrest
+ames_four_models <- 
+  as_workflow_set(random_forest = rf_resample) %>% 
+  bind_rows(ames_lm_models)
+# - Eval
+ames_four_models %>% autoplot(metric = "rsq") + theme_bw()
 # MODEL EVALUATION: (yardstick) ----
 # Home Sales ====
 # - prediction
@@ -401,3 +491,39 @@ loans_log_resample %>%
             max = max(.estimate))
 
 # Ames Housing ====
+
+# Predictions
+# - Linear Regression
+ames_results <- ames_test %>% 
+  select(Sale_Price) %>% 
+  mutate(lm_pred = ames_lm_fit %>% predict(new_data = ames_test) %>% pull)
+# - Random Forrest
+ames_results <- ames_results %>% 
+  add_column(rf_pred = ames_rf_fit %>% predict(new_data = ames_test) %>% pull)
+
+# Linear Regression
+# - visual
+ames_results %>% 
+  ggplot(aes(Sale_Price, lm_pred)) +
+  geom_abline(lty = 2) + geom_point(alpha = 0.5) +
+  labs(
+    title = "Linear Regression",
+    x = "Sale Price", y = "Prediction"
+  ) +
+  coord_obs_pred()
+# - evaluation
+ames_metrics <- metric_set(rmse, rsq, mae)
+ames_results %>% ames_metrics(truth = Sale_Price, estimate = lm_pred)
+
+# Random Forrest
+# - visual
+ames_results %>% 
+  ggplot(aes(Sale_Price, rf_pred)) +
+  geom_abline(lty = 2) + geom_point(alpha = 0.5) +
+  labs(
+    title = "Random Forrest",
+    x = "Sale Price", y = "Prediction"
+  ) +
+  coord_obs_pred()
+# - evaulation
+ames_results %>% ames_metrics(truth = Sale_Price, estimate = rf_pred)
