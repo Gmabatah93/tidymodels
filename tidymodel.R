@@ -2,6 +2,7 @@ library(tidyr)
 library(dplyr)
 library(tidymodels)
 theme_set(theme_minimal())
+library(workflowsets)
 
 # RESAMPLING: (rsamples) ----
 # Ames Housing ====
@@ -117,9 +118,9 @@ ames_recipe <-
   step_log(Gr_Liv_Area, base = 10) %>% 
   step_other(Neighborhood, threshold = 0.01) %>% 
   step_dummy(all_nominal()) %>% 
-  step_interact(~Gr_Liv_Area:starts_with("Bldg_Type_"))
+  step_interact(~Gr_Liv_Area:starts_with("Bldg_Type_")) %>% 
+  step_ns(Latitude, Longitude, deg_free = 20)
   
-
 ames_prep <- 
   ames_recipe %>% 
   prep(training = ames_train)
@@ -127,6 +128,7 @@ ames_prep <-
 ames_prep %>% bake(new_data = NULL)
 
 # MODEL FITTING: (workflows | tune) ----
+model_db
 # Home Sales: Linear Regression  ====
 # - spec
 lm_mod <- 
@@ -247,6 +249,44 @@ loans_log_resample <-
 ames_lm_model <- 
   linear_reg() %>% 
   set_engine("lm")
+# - fit
+ames_lm_fit <- 
+  ames_lm_model %>% 
+  fit(Sale_Price ~ Longitude + Latitude, data = ames_train)
+
+# Workflow
+ames_lm_wflow <- 
+  workflow() %>% 
+  add_model(ames_lm_model) %>% 
+  add_recipe(ames_recipe)
+
+# Workflow Set
+location <- list(
+  longitude = Sale_Price ~ Longitude,
+  latitude = Sale_Price ~ Latitude,
+  coords = Sale_Price ~ Longitude + Latitude,
+  neighborhood = Sale_Price ~ Neighborhood
+)
+# - fit
+location_models <- workflow_set(preproc = location, models = list(lm = ames_lm_model))
+location_models$info[[1]]
+location_models %>% pull_workflow(id = "coords_lm")
+
+location_models <-
+  location_models %>%
+  mutate(fit = map2(info, wflow_id, ~ fit(.x$workflow[[1]], ames_train)))#
+location_models
+#
+# Ames Housing: Decision Tree ====
+# - spec
+ames_dt_model <- 
+  decision_tree() %>% 
+  set_engine("rpart") %>% 
+  set_mode("regression")
+# - fit
+ames_dt_fit <- 
+  ames_dt_model %>% 
+  fit(Sale_Price ~ Longitude + Latitude, data = ames_train)
 
 #
 # MODEL EVALUATION: (yardstick) ----
@@ -359,3 +399,5 @@ loans_log_resample %>%
   summarise(min = min(.estimate),
             median = median(.estimate),
             max = max(.estimate))
+
+# Ames Housing ====

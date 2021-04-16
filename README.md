@@ -75,3 +75,12 @@ step_upsample() | Up-Sample a Data Set Based on a Factor Variable | recipe, over
 
 Function | Description | Parameters
 --- | --- | ---
+linear_reg() | General Interface for Linear Regression Models | penalty, mixture
+logistic_reg() | General Interface for Logistic Regression Models | penalty, mixture
+nearest_neighbor() | General Interface for K-Nearest Neighbor Models | neighbors, weight_func, dist_power
+mars() | General Interface for MARS | num_terms, prod_degree, prune_method
+svm_rbf() | General interface for radial basis function support vector machines | cost, rbf_sigma, margin
+decision_tree() | General Interface for Decision Tree Models | cost_complexity, tree_depth, min_n
+rand_forest() | General Interface for Random Forest Models | mtry, trees, min_n
+boost_tree() | General Interface for Boosted Trees | mtry, trees, min_n, tree_depth, learn_rate, loss_reduction, sample_size, stor_iter
+surv_reg() | General Interface for Parametric Survival Models | dist
