@@ -70,8 +70,33 @@ step_upsample() | Up-Sample a Data Set Based on a Factor Variable | recipe, over
 
 # Model Fitting
 
+## Grid Search
+**Regular Grid**: each parameter has a corresponding set of possible values
+**Non-Regular Grid**: parameter combinations are not formed from a small set of points.
 
-#### Functions
+## Iterative Search
+**Bayesian Optimization**: analyze the current resampling results and create a predictive model to suggest tuning parameter values that have yet to be evaluated. The suggested parameter combination is then resampled. These results are then used in another predictive model that recommends more candidate values for testing, and so on. The process proceeds for a set number of iterations or until no further improvements occur.
+
+**Simulated Annealing**: A general nonlinear search routine inspired by the process in which metal cools. It is a global search method that can effectively navigate many different types of search landscapes, including discontinuous functions. Unlike most gradient-based optimization routines, simulated annealing can reassess previous solutions.
+
+#### Functions:
+**(tune)**
+
+Function | Description | Parameters
+--- | --- | ---
+parameters() | Determination of parameter sets for other objects |
+tune_grid() | computes a set of performance metrics (e.g. accuracy or RMSE) for a pre-defined set of tuning parameters that correspond to a model or recipe across one or more resamples of the data | object, resamples, param_info, grid, metrics, control
+tune_bayes() | Bayesian optimization of model parameters | object, iter, initial, objective, param_info, control
+tune_sim_anneal() |   
+
+**(dials)**
+
+Function | Description | Parameters
+--- | --- | ---
+grid_regular() | Create grids of tuning parameters | x, levels
+grid_random() | Create grids of tuning parameters | x, levels
+
+**(parsnip)**
 
 Function | Description | Parameters
 --- | --- | ---

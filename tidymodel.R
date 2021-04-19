@@ -47,6 +47,23 @@ ames_folds <- ames_train %>% vfold_cv(v = 10)
 
 
 #
+# Cells ====
+data(cells, package = "modeldata")
+cells <- cells %>% select(-case)
+# Split
+set.seed(33)
+cell_fold <- vfold_cv(cells)
+#
+# Concrete ====
+data(concrete, package = "modeldata")
+# Split
+concrete_split <- initial_split(concrete, strata = compressive_strength)
+concrete_train <- training(concrete_split)
+concrete_test <- testing(concrete_split)
+# - folds
+concrete_folds <- vfold_cv(concrete_train, strata = compressive_strength, repeats = 5)
+
+#
 # Home Sales ====
 # DATA
 home_sales <- readRDS(file = "Data/home_sales.rds") %>% as_tibble()
@@ -95,6 +112,53 @@ set.seed(123)
 loans_fold <- loans_train %>% 
   vfold_cv(v = 5, strata = loan_default)
 # FEATURE ENGINEERING: (recipes) ----
+# Ames Housing ====
+ames_recipe <- 
+  recipe(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type + Latitude + Longitude,
+         data = ames_train) %>% 
+  step_log(Gr_Liv_Area, base = 10) %>% 
+  step_other(Neighborhood, threshold = tune()) %>% 
+  step_dummy(all_nominal()) %>% 
+  step_interact(~Gr_Liv_Area:starts_with("Bldg_Type_")) %>% 
+  step_ns(Latitude, deg_free = tune("longitude df")) %>% 
+  step_ns(Longitude, deg_free = tune("latitude df"))
+
+ames_recipe %>% parameters()  
+
+ames_prep <- 
+  ames_recipe %>% 
+  prep(training = ames_train)
+
+ames_prep %>% bake(new_data = NULL)
+
+#
+# Cells ====
+
+# Multilayer Perceptron
+cells_mlp_recipe <- 
+  recipe(class ~ ., data = cells) %>% 
+  step_YeoJohnson(all_predictors()) %>% 
+  step_normalize(all_predictors()) %>% 
+  step_pca(all_predictors(), num_comp = tune()) %>% 
+  step_normalize(all_predictors())
+
+# Support Vector Machine
+cells_svm_recipe <- 
+  recipe(class ~ ., data = cells) %>% 
+  step_YeoJohnson(all_predictors()) %>% 
+  step_normalize(all_predictors())
+#
+# Concrete ====
+concrete_normalized_recipe <- 
+  recipe(compressive_strength ~ ., data = concrete_train) %>% 
+  step_normalize(all_predictors())
+
+concrete_poly_recipe <- 
+  concrete_normalized_recipe %>% 
+  step_poly(all_predictors()) %>% 
+  step_interact(~ all_predictors():all_predictors())
+
+#
 # Telcom ====
 
 # Recipe
@@ -121,139 +185,8 @@ loans_recipe <-
   step_corr(all_numeric(), threshold = 0.85) %>% 
   step_normalize(all_numeric()) %>% 
   step_dummy(all_nominal(), -all_outcomes())
-# Ames Housing ====
-ames_recipe <- 
-  recipe(Sale_Price ~ Neighborhood + Gr_Liv_Area + Year_Built + Bldg_Type,
-         data = ames_train) %>% 
-  step_log(Gr_Liv_Area, base = 10) %>% 
-  step_other(Neighborhood, threshold = 0.01) %>% 
-  step_dummy(all_nominal()) %>% 
-  step_interact(~Gr_Liv_Area:starts_with("Bldg_Type_")) %>% 
-  step_ns(Latitude, Longitude, deg_free = 20)
-  
-ames_prep <- 
-  ames_recipe %>% 
-  prep(training = ames_train)
-
-ames_prep %>% bake(new_data = NULL)
-
 # MODEL FITTING: (workflows | tune) ----
 model_db
-# Home Sales: Linear Regression  ====
-# - spec
-lm_mod <- 
-  linear_reg() %>% 
-  set_engine("lm") %>% 
-  set_mode("regression")
-# - fit
-lm_fit <- 
-  lm_mod %>% 
-  fit(selling_price ~ home_age + sqft_living, 
-      data = home_train)
-# - final
-lm_final <- 
-  lm_mod %>% 
-  last_fit(selling_price ~ ., split = home_split)
-#
-# Telecom: Logistic Regression ====
-# - spec
-log_model <- 
-  logistic_reg() %>% 
-  set_engine("glm") %>% 
-  set_mode("classification")
-
-log_fit <- 
-  log_model %>% 
-  fit(canceled_service ~ avg_call_mins + avg_intl_mins + monthly_charges,
-      data = telecom_train)
-log_fit %>% tidy()
-# - final
-log_fit_2 <- 
-  log_model %>% 
-  last_fit(canceled_service ~ avg_call_mins + avg_intl_mins + monthly_charges + months_with_company,
-           split = telecom_split)
-
-
-# Workflow
-log_fit_prep_full <- 
-  log_model %>% 
-  fit(canceled_service ~ ., data = telecom_train_prep)
-
-#
-# Loans: Decision Tree ====
-
-# Spec
-loan_dt_model <- 
-  decision_tree(
-    cost_complexity = tune(),
-    tree_depth = tune(),
-    min_n = tune()
-  ) %>% 
-  set_engine("rpart") %>% 
-  set_mode("classification")
-# Workflow
-loans_dt_wflow <- 
-  workflow() %>% 
-  # model spec
-  add_model(loan_dt_model) %>% 
-  # recipe
-  add_recipe(loans_recipe)
-
-# Hyperparameter
-set.seed(123)
-# - grid
-loans_dt_grid <- 
-  grid_random(parameters(loan_dt_model),
-              size = 5)
-
-# Fit
-loans_dt_fit <- 
-  loans_dt_wflow %>% 
-  tune_grid(resamples = loans_fold,
-            grid = loans_dt_grid,
-            metric = loans_metrics)
-# - metric
-loans_metrics <- metric_set(roc_auc, sens, spec)
-# - refit
-loans_dt_resample <- 
-  loans_dt_wflow %>% 
-  fit_resamples(resamples = loans_fold, 
-                metrics = loans_metrics)
-# FINAL
-# - hyperparameter
-loans_dt_best <- 
-  loans_dt_fit %>% 
-  select_best(metric = "roc_auc")
-# - workflow
-loans_dt_wflow_final <- 
-  loans_dt_wflow %>% 
-  finalize_workflow(loans_dt_best)
-# - fit
-loans_dt_final <-
-  loans_dt_final_wflow %>% 
-  last_fit(split = loans_split)
-  
-
-# Loans: Logistic Regression ====
-# Spec
-loans_log_model <- 
-  logistic_reg() %>% 
-  set_engine("glm") %>% 
-  set_mode("classification")
-
-# Workflow 
-loans_log_wflow <- 
-  workflow() %>% 
-  add_model(loans_log_model) %>% 
-  add_recipe(loans_recipe)
-
-# Fit
-# - resamples
-loans_log_resample <- 
-  loans_log_wflow %>% 
-  fit_resamples(resamples = loans_fold,
-                metrics = loans_metrics)
-
 # Ames Housing: Linear Regression ====
 # - spec
 ames_lm_model <- 
@@ -379,6 +312,333 @@ ames_four_models <-
   bind_rows(ames_lm_models)
 # - Eval
 ames_four_models %>% autoplot(metric = "rsq") + theme_bw()
+
+#
+# Cells: Multilayer Perceptron ====
+# - Spec
+cell_mlp_spec <- 
+  mlp(hidden_units = tune(),
+      penalty = tune(),
+      epochs = tune()) %>% 
+  set_engine("nnet", trace = 0) %>% 
+  set_mode("classification")
+
+# Workflow
+cell_mlp_wflow <- 
+  workflow() %>% 
+  add_model(cell_mlp_spec) %>% 
+  add_recipe(cells_mlp_recipe)
+
+# Hyperparameters
+cells_mlp_param <- 
+  cell_mlp_wflow %>% 
+  parameters() %>% 
+  update(epochs = epochs(c(50,200)),
+         num_comp = num_comp(c(0,40)))
+# - metric
+cell_roc_resample <- metric_set(roc_auc)
+# - fit
+set.seed(99)
+celll_mlp_reg_tune <- 
+  cell_mlp_wflow %>% 
+  tune_grid(cell_fold, 
+            grid = cells_mlp_param %>% grid_regular(levels = 3), 
+            metrics = cell_roc_resample)
+# - visual
+celll_mlp_reg_tune %>% 
+  autoplot() + 
+  theme_bw()
+celll_mlp_reg_tune %>% show_best()
+# - final: workflow
+cell_mlp_best <- celll_mlp_reg_tune %>% select_best(metric = "roc_auc")
+cell_mlp_wflow_final <- 
+  cell_mlp_wflow %>% 
+  finalize_workflow(cell_mlp_best)
+# - final: fit
+cell_mlp_fit_final <- 
+  cell_mlp_wflow_final %>% 
+  fit(cells)
+#
+# Cells: Support Vector Machine ====
+# Spec
+cells_svm_spec <- 
+  svm_rbf(cost = tune(),
+          rbf_sigma = tune()) %>% 
+  set_engine("kernlab") %>% 
+  set_mode("classification")
+
+# Workflow
+cells_svm_wflow <- 
+  workflow() %>% 
+  add_model(cells_svm_spec) %>% 
+  add_recipe(cells_svm_recipe)
+
+# Hyperparameters
+cells_svm_param <- 
+  cells_svm_wflow %>% 
+  parameters() %>% 
+  update(rbf_sigma = rbf_sigma(c(-7,-1)))
+# - initial grid
+cells_start_grid <- 
+  cells_svm_param %>% 
+  update(
+    cost = cost(c(-6,1)),
+    rbf_sigma = rbf_sigma(c(-6,-4))
+  ) %>% 
+  grid_regular(levels = 2)
+
+cells_initial <- 
+  cells_svm_wflow %>% 
+  tune_grid(resamples = cell_fold,
+            grid = cells_start_grid,
+            metric = cell_roc_resample)
+
+cells_initial %>% collect_metrics() %>% filter(.metric == "roc_auc")
+
+# - bayesian optimization
+cell_ctrl_svm_bayes <- control_bayes(verbose = TRUE)
+
+set.seed(1234)
+cell_svm_tune_bayes <- 
+  cells_svm_wflow %>% 
+  tune_bayes(
+    resamples = cell_fold,
+    metric = cell_roc_resample,
+    initial = cells_initial,
+    param_info = cells_svm_param,
+    iter = 25, 
+    control = cell_ctrl_svm_bayes
+  )
+
+# - simulated annealing
+
+#
+# Concrete: Multi
+# - spec
+concrete_lm_spec <- 
+  linear_reg(penalty = tune(),
+             mixture = tune()) %>% 
+  set_engine("glmnet")
+
+concrete_nnet_spec <- 
+  mlp(hidden_units = tune(), penalty = tune(), epochs = tune()) %>% 
+  set_engine("nnet", MaxNWts = 2600) %>% 
+  set_mode("regression")
+
+concrete_mars_spec <- 
+  mars(prod_degree = tune()) %>%  #<- use GCV to choose terms
+  set_engine("earth") %>% 
+  set_mode("regression")
+
+concrete_svm_r_spec <- 
+  svm_rbf(cost = tune(), rbf_sigma = tune()) %>% 
+  set_engine("kernlab") %>% 
+  set_mode("regression")
+
+concrete_svm_p_spec <- 
+  svm_poly(cost = tune(), degree = tune()) %>% 
+  set_engine("kernlab") %>% 
+  set_mode("regression")
+
+concrete_knn_spec <- 
+  nearest_neighbor(neighbors = tune(), dist_power = tune(), weight_func = tune()) %>% 
+  set_engine("kknn") %>% 
+  set_mode("regression")
+
+concrete_cart_spec <- 
+  decision_tree(cost_complexity = tune(), min_n = tune()) %>% 
+  set_engine("rpart") %>% 
+  set_mode("regression")
+
+concrete_rf_spec <- 
+  rand_forest(mtry = tune(), min_n = tune(), trees = 1000) %>% 
+  set_engine("ranger") %>% 
+  set_mode("regression")
+
+concrete_xgb_spec <- 
+  boost_tree(tree_depth = tune(), learn_rate = tune(), loss_reduction = tune(), 
+             min_n = tune(), sample_size = tune(), trees = tune()) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+library(rules)
+concrete_cubist_spec <- 
+  cubist_rules(committees = tune(), neighbors = tune()) %>% 
+  set_engine("Cubist") 
+
+# Hyperparameters
+concrete_nnet_param <- 
+  concrete_nnet_spec %>% 
+  parameters() %>% 
+  update(hidden_units = hidden_units(c(1,27)))
+  
+# Workflowset
+concrete_models_normalized <-
+  workflow_set(
+    preproc = list(normalized = concreate_normalized_recipe),
+    models = list(SVM_radial = concrete_svm_r_spec,
+                  SVM_poly = concrete_svm_p_spec,
+                  KNN = concrete_knn_spec,
+                  NNET = concrete_nnet_spec)
+  )
+concrete_models_normalized %>% pull_workflow(id = "normalized_KNN")
+# - add nnet parameter
+concrete_models_normalized <- concrete_models_normalized %>% 
+  option_add(param = concrete_nnet_param, id = "normalized_NNET")
+concrete_models_normalized %>% pull_workflow(id = "normalized_NNET")
+# - model variables
+concrete_model_vars <- 
+  workflow_variables(outcomes = compressive_strength, 
+                     predictors = everything())
+concrete_no_pre_proc <- 
+  workflow_set(
+    preproc = list(simple = concrete_model_vars), 
+    models = list(MARS = concrete_mars_spec, CART = concrete_cart_spec,
+                  RF = concrete_rf_spec, boosting = concrete_xgb_spec, Cubist = concrete_cubist_spec)
+  )
+concrete_with_features <- 
+  workflow_set(
+    preproc = list(full_quad = concrete_poly_recipe), 
+    models = list(linear_reg = concrete_lm_spec, KNN = concrete_knn_spec)
+  )
+
+all_workflow <- 
+  bind_rows(concrete_no_pre_proc, concrete_models_normalized, concrete_with_features) %>% 
+  # Make the workflow ID's a little more simple: 
+  mutate(wflow_id = gsub("(simple_)|(normalized_)", "", wflow_id))
+
+# - grid
+concrete_grid_control <- 
+  control_grid(
+    save_pred = TRUE,
+    parallel_over = "everything",
+    save_workflow = TRUE
+  )
+
+concrete_grid_results <-
+  all_workflow %>%
+  workflow_map(
+    seed = 1503,
+    resamples = concrete_folds,
+    grid = 25,
+    control = concrete_grid_control
+  )
+#
+# Telecom: Logistic Regression ====
+# - spec
+log_model <- 
+  logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+log_fit <- 
+  log_model %>% 
+  fit(canceled_service ~ avg_call_mins + avg_intl_mins + monthly_charges,
+      data = telecom_train)
+log_fit %>% tidy()
+# - final
+log_fit_2 <- 
+  log_model %>% 
+  last_fit(canceled_service ~ avg_call_mins + avg_intl_mins + monthly_charges + months_with_company,
+           split = telecom_split)
+
+
+# Workflow
+log_fit_prep_full <- 
+  log_model %>% 
+  fit(canceled_service ~ ., data = telecom_train_prep)
+
+#
+# Home Sales: Linear Regression  ====
+# - spec
+lm_mod <- 
+  linear_reg() %>% 
+  set_engine("lm") %>% 
+  set_mode("regression")
+# - fit
+lm_fit <- 
+  lm_mod %>% 
+  fit(selling_price ~ home_age + sqft_living, 
+      data = home_train)
+# - final
+lm_final <- 
+  lm_mod %>% 
+  last_fit(selling_price ~ ., split = home_split)
+#
+# Loans: Decision Tree ====
+
+# Spec
+loan_dt_model <- 
+  decision_tree(
+    cost_complexity = tune(),
+    tree_depth = tune(),
+    min_n = tune()
+  ) %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+# Workflow
+loans_dt_wflow <- 
+  workflow() %>% 
+  # model spec
+  add_model(loan_dt_model) %>% 
+  # recipe
+  add_recipe(loans_recipe)
+
+# Hyperparameter
+set.seed(123)
+# - grid
+loans_dt_grid <- 
+  grid_random(parameters(loan_dt_model),
+              size = 5)
+
+# Fit
+loans_dt_fit <- 
+  loans_dt_wflow %>% 
+  tune_grid(resamples = loans_fold,
+            grid = loans_dt_grid,
+            metric = loans_metrics)
+# - metric
+loans_metrics <- metric_set(roc_auc, sens, spec)
+# - refit
+loans_dt_resample <- 
+  loans_dt_wflow %>% 
+  fit_resamples(resamples = loans_fold, 
+                metrics = loans_metrics)
+# FINAL
+# - hyperparameter
+loans_dt_best <- 
+  loans_dt_fit %>% 
+  select_best(metric = "roc_auc")
+# - workflow
+loans_dt_wflow_final <- 
+  loans_dt_wflow %>% 
+  finalize_workflow(loans_dt_best)
+# - fit
+loans_dt_final <-
+  loans_dt_final_wflow %>% 
+  last_fit(split = loans_split)
+  
+
+# Loans: Logistic Regression ====
+# Spec
+loans_log_model <- 
+  logistic_reg() %>% 
+  set_engine("glm") %>% 
+  set_mode("classification")
+
+# Workflow 
+loans_log_wflow <- 
+  workflow() %>% 
+  add_model(loans_log_model) %>% 
+  add_recipe(loans_recipe)
+
+# Fit
+# - resamples
+loans_log_resample <- 
+  loans_log_wflow %>% 
+  fit_resamples(resamples = loans_fold,
+                metrics = loans_metrics)
+
 # MODEL EVALUATION: (yardstick) ----
 # Home Sales ====
 # - prediction
