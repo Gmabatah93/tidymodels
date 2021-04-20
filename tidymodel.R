@@ -195,15 +195,47 @@ hotel_stays <- hotels %>%
 # EDA
 hotel_stays %>% count(children)
 hotel_stays %>% skimr::skim()
-# - Visual:
+# - Visual: Monthly stays
 hotel_stays %>%
   mutate(arrival_date_month = factor(arrival_date_month, levels = month.name)) %>% 
-  count(arrival_date_month, children) %>% 
-  group_by(children) %>% 
+  count(hotel, arrival_date_month, children) %>% 
+  group_by(hotel, children) %>% 
   mutate(prop = n / sum(n)) %>% 
   ggplot(aes(arrival_date_month, prop, fill = children)) +
   geom_col(position = "dodge") +
-  scale_y_continuous(labels = scales)
+  facet_wrap(~ hotel, nrow = 2) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme(axis.text.x = element_text(hjust = 1, angle = 45))
+# - Visual: Parking
+hotel_stays %>%
+  count(hotel, required_car_parking_spaces, children) %>% 
+  group_by(hotel, children) %>% 
+  mutate(prop = n / sum(n)) %>% 
+  ggplot(aes(required_car_parking_spaces, prop, fill = children)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ hotel, nrow = 2) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme(axis.text.x = element_text(hjust = 1, angle = 45))
+# - Visual: Corrplot
+library(GGally)
+
+hotel_stays %>% 
+  select(children, adr, required_car_parking_spaces, total_of_special_requests) %>% 
+  ggpairs(mapping = aes(color = children))
+
+# Model Data
+hotels_df <- hotel_stays %>% 
+  select(children, hotel, arrival_date_month, meal, adr, adults, 
+         required_car_parking_spaces, total_of_special_requests,
+         stays_in_week_nights, stays_in_weekend_nights) %>% 
+  mutate_if(is.character, factor)
+
+# Split
+set.seed(1234)
+
+hotels_split <- initial_split(hotels_df)
+hotels_train <- training(hotels_split)
+hotels_test <- testing(hotels_split)
 #
 # FEATURE ENGINEERING: (recipes) ----
 # Ames Housing ====
@@ -349,6 +381,24 @@ unvotes_pca_issues_comps %>%
   geom_col(position = "dodge") +
   facet_wrap(~ component, scales = "free_y") +
   labs(y = NULL, fill = NULL, x = "Abs Value of Contribution")
+#
+# Hotel Bookings ====
+
+# Preprocess
+hotels_rec <- 
+  recipe(children ~ ., data = hotels_train) %>% 
+  step_downsample(children) %>% 
+  step_dummy(all_nominal(), -all_outcomes()) %>% 
+  step_zv(all_numeric()) %>% 
+  step_normalize(all_numeric())
+  
+hotels_train_prep <- hotels_rec %>% prep() %>% juice()
+hotels_train_prep %>% count(children)
+
+hotel_test_prep <- bake(hotels_rec, new_data = hotels_test)
+
+
+#
 #
 # MODEL FITTING: (workflows | tune) ----
 model_db
@@ -804,6 +854,58 @@ loans_log_resample <-
   fit_resamples(resamples = loans_fold,
                 metrics = loans_metrics)
 
+# Hotel Bookings: KNN ====
+
+# Validation Set
+set.seed(1234)
+hotels_validation_splits <- mc_cv(hotels_train, prop = 0.9, strata = children)
+
+# Spec
+hotels_knn_spec <- nearest_neighbor() %>% 
+  set_engine("kknn") %>% 
+  set_mode("classification")
+
+# Workflow
+hotels_knn_wflow <- 
+  workflow() %>% 
+  add_model(hotels_knn_spec) %>% 
+  add_recipe(hotels_rec)
+
+# Resample
+hotel_knn_res <- 
+  hotels_knn_wflow %>% 
+  fit_resamples(
+    hotels_validation_splits,
+    control = control_resamples(save_pred = TRUE)
+  )
+# - eval
+hotel_knn_res %>% collect_metrics()
+
+#
+# Hotel Bookings: Decision Tree ====
+
+# Spec 
+hotels_dt_spec <- decision_tree() %>% 
+  set_engine("rpart") %>% 
+  set_mode("classification")
+
+# Workflow
+hotels_dt_wflow <-
+  workflow() %>% 
+  add_model(hotels_dt_spec) %>% 
+  add_recipe(hotels_rec)
+
+# Resample
+hotels_dt_res <- 
+  hotels_dt_wflow %>% 
+  fit_resamples(
+    hotels_validation_splits,
+    control = control_resamples(save_pred = TRUE)
+  )
+# - eval
+hotels_dt_res %>% collect_metrics()
+
+#
 # MODEL EVALUATION: (yardstick) ----
 # Home Sales ====
 # - prediction
@@ -952,3 +1054,26 @@ ames_results %>%
   coord_obs_pred()
 # - evaulation
 ames_results %>% ames_metrics(truth = Sale_Price, estimate = rf_pred)
+
+# Hotel Bookings ====
+
+# Resample: 
+# - ROC
+hotel_knn_res %>% 
+  unnest(.predictions) %>% 
+  mutate(model = "kNN") %>% 
+  bind_rows(hotels_dt_res %>% 
+              unnest(.predictions) %>% 
+              mutate(model = "DT")) %>% 
+  group_by(model) %>% 
+  roc_curve(truth = children, .pred_children) %>% 
+  autoplot()
+# - CM
+hotel_knn_res %>% 
+  unnest(.predictions) %>% 
+  conf_mat(children, .pred_class) %>% 
+  autoplot(type = "heatmap")
+
+# kNN
+
+# Decision Tree
