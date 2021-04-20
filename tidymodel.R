@@ -1,11 +1,6 @@
-library(readr)
-library(tidyr)
-library(dplyr)
-library(stringr)
-library(forcats)
-library(ggplot2)
-theme_set(theme_minimal())
+library(tidyverse)
 library(tidymodels)
+theme_set(theme_minimal())
 library(workflowsets)
 
 # RESAMPLING: (rsamples) ----
@@ -150,8 +145,8 @@ cocktails_parsed <- cocktails %>%
   select(-n) %>%
   distinct(row_id, ingredient, .keep_all = TRUE) %>%
   na.omit()
-
-cocktails_df <- cocktails_parsed %>%
+# - pivot
+cocktails_wide_df <- cocktails_parsed %>%
   select(-ingredient_number, -row_id, -measure) %>%
   pivot_wider(names_from = ingredient, values_from = measure_number, values_fill = 0) %>%
   janitor::clean_names() %>%
@@ -255,17 +250,15 @@ loans_recipe <-
   step_dummy(all_nominal(), -all_outcomes())
 # Cocktails: PCA ====
 
-# PCA
-cocktail_pca_rec <- recipe(~., data = cocktails_df) %>%
+# - Preprocess
+cocktail_pca_rec <- recipe(~., data = cocktails_wide_df) %>%
   update_role(name, category, new_role = "id") %>%
   step_normalize(all_predictors()) %>%
   step_pca(all_predictors())
 
 cocktail_pca_prep <- prep(cocktail_pca_rec)
-
-cocktail_tidied_pca <- tidy(cocktail_pca_prep, 2)
-
-cocktail_tidied_pca %>%
+# - Visuals
+tidy(cocktail_pca_prep, 2) %>% 
   filter(component %in% paste0("PC", 1:5)) %>%
   mutate(component = fct_inorder(component)) %>%
   ggplot(aes(value, terms, fill = terms)) +
@@ -274,22 +267,20 @@ cocktail_tidied_pca %>%
   labs(y = NULL) +
   theme_bw()
 
-library(tidytext)
-cocktail_tidied_pca %>%
+tidy(cocktail_pca_prep, 2) %>%
   filter(component %in% paste0("PC", 1:4)) %>%
   group_by(component) %>%
   top_n(8, abs(value)) %>%
   ungroup() %>%
-  mutate(terms = reorder_within(terms, abs(value), component)) %>%
   ggplot(aes(abs(value), terms, fill = value > 0)) +
   geom_col() +
   facet_wrap(~component, scales = "free_y") +
-  scale_y_reordered() +
   labs(
     x = "Absolute value of contribution",
     y = NULL, fill = "Positive?"
   )
 
+# - projection: "U"SV
 juice(cocktail_pca_prep) %>%
   ggplot(aes(PC1, PC2, label = name)) +
   geom_point(aes(color = category), alpha = 0.7, size = 2) +
