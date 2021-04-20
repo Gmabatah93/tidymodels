@@ -1,4 +1,3 @@
-library(tidyverse)
 library(tidymodels)
 theme_set(theme_minimal())
 library(workflowsets)
@@ -174,6 +173,38 @@ unvotes_df <- unvotes %>%
          vote = as.numeric(vote),
          rcid = paste0("rcid_", rcid)) %>% 
   pivot_wider(names_from = "rcid", values_from = "vote", values_fill = 2)
+# Hotel Bookings ====
+
+# Data
+hotels <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-02-11/hotels.csv")
+# - clean: 
+hotel_stays <- hotels %>%
+  filter(is_canceled == 0) %>%
+  mutate(
+    children = case_when(
+      children + babies > 0 ~ "children",
+      TRUE ~ "none"
+    ),
+    required_car_parking_spaces = case_when(
+      required_car_parking_spaces > 0 ~ "parking",
+      TRUE ~ "none"
+    )
+  ) %>%
+  select(-is_canceled, -reservation_status, -babies)
+
+# EDA
+hotel_stays %>% count(children)
+hotel_stays %>% skimr::skim()
+# - Visual:
+hotel_stays %>%
+  mutate(arrival_date_month = factor(arrival_date_month, levels = month.name)) %>% 
+  count(arrival_date_month, children) %>% 
+  group_by(children) %>% 
+  mutate(prop = n / sum(n)) %>% 
+  ggplot(aes(arrival_date_month, prop, fill = children)) +
+  geom_col(position = "dodge") +
+  scale_y_continuous(labels = scales)
+#
 # FEATURE ENGINEERING: (recipes) ----
 # Ames Housing ====
 ames_recipe <- 

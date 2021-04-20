@@ -95,6 +95,8 @@ Function | Description | Parameters
 --- | --- | ---
 grid_regular() | Create grids of tuning parameters | x, levels
 grid_random() | Create grids of tuning parameters | x, levels
+grid_max_entropy() | |
+grid_latin_hypercube() | |
 
 **(parsnip)**
 
