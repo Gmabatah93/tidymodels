@@ -1,7 +1,11 @@
+library(readr)
 library(tidyr)
 library(dplyr)
-library(tidymodels)
+library(stringr)
+library(forcats)
+library(ggplot2)
 theme_set(theme_minimal())
+library(tidymodels)
 library(workflowsets)
 
 # RESAMPLING: (rsamples) ----
@@ -111,6 +115,70 @@ loans_test <- loans_split %>% testing()
 set.seed(123)
 loans_fold <- loans_train %>% 
   vfold_cv(v = 5, strata = loan_default)
+# Cocktails ====
+cocktails <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-05-26/boston_cocktails.csv")
+# Clean
+cocktails_parsed <- cocktails %>%
+  mutate(
+    ingredient = str_to_lower(ingredient),
+    ingredient = str_replace_all(ingredient, "-", " "),
+    ingredient = str_remove(ingredient, " liqueur$"),
+    ingredient = str_remove(ingredient, " (if desired)$"),
+    ingredient = case_when(
+      str_detect(ingredient, "bitters") ~ "bitters",
+      str_detect(ingredient, "lemon") ~ "lemon juice",
+      str_detect(ingredient, "lime") ~ "lime juice",
+      str_detect(ingredient, "grapefruit") ~ "grapefruit juice",
+      str_detect(ingredient, "orange") ~ "orange juice",
+      TRUE ~ ingredient
+    ),
+    measure = case_when(
+      str_detect(ingredient, "bitters") ~ str_replace(measure, "oz$", "dash"),
+      TRUE ~ measure
+    ),
+    measure = str_replace(measure, " ?1/2", ".5"),
+    measure = str_replace(measure, " ?3/4", ".75"),
+    measure = str_replace(measure, " ?1/4", ".25"),
+    measure_number = parse_number(measure),
+    measure_number = if_else(str_detect(measure, "dash$"),
+                             measure_number / 50,
+                             measure_number
+    )
+  ) %>%
+  add_count(ingredient) %>%
+  filter(n > 15) %>%
+  select(-n) %>%
+  distinct(row_id, ingredient, .keep_all = TRUE) %>%
+  na.omit()
+
+cocktails_df <- cocktails_parsed %>%
+  select(-ingredient_number, -row_id, -measure) %>%
+  pivot_wider(names_from = ingredient, values_from = measure_number, values_fill = 0) %>%
+  janitor::clean_names() %>%
+  na.omit()
+#
+# Hip Hop Songs ====
+
+# Data
+hiphop <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-04-14/rankings.csv")
+
+# EDA
+hiphop %>% 
+  ggplot(aes(year, points, color = gender)) +
+  geom_jitter(alpha = 0.5) +
+  scale_y_log10()
+
+# UN Voting ====
+# Data
+unvotes <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-03-23/unvotes.csv")
+issues <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-03-23/issues.csv")
+# Clean: Columns
+unvotes_df <- unvotes %>% 
+  select(country, rcid, vote) %>% 
+  mutate(vote = factor(vote, levels = c("no","abstain","yes")),
+         vote = as.numeric(vote),
+         rcid = paste0("rcid_", rcid)) %>% 
+  pivot_wider(names_from = "rcid", values_from = "vote", values_fill = 2)
 # FEATURE ENGINEERING: (recipes) ----
 # Ames Housing ====
 ames_recipe <- 
@@ -185,6 +253,81 @@ loans_recipe <-
   step_corr(all_numeric(), threshold = 0.85) %>% 
   step_normalize(all_numeric()) %>% 
   step_dummy(all_nominal(), -all_outcomes())
+# Cocktails: PCA ====
+
+# PCA
+cocktail_pca_rec <- recipe(~., data = cocktails_df) %>%
+  update_role(name, category, new_role = "id") %>%
+  step_normalize(all_predictors()) %>%
+  step_pca(all_predictors())
+
+cocktail_pca_prep <- prep(cocktail_pca_rec)
+
+cocktail_tidied_pca <- tidy(cocktail_pca_prep, 2)
+
+cocktail_tidied_pca %>%
+  filter(component %in% paste0("PC", 1:5)) %>%
+  mutate(component = fct_inorder(component)) %>%
+  ggplot(aes(value, terms, fill = terms)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~component, nrow = 1) +
+  labs(y = NULL) +
+  theme_bw()
+
+library(tidytext)
+cocktail_tidied_pca %>%
+  filter(component %in% paste0("PC", 1:4)) %>%
+  group_by(component) %>%
+  top_n(8, abs(value)) %>%
+  ungroup() %>%
+  mutate(terms = reorder_within(terms, abs(value), component)) %>%
+  ggplot(aes(abs(value), terms, fill = value > 0)) +
+  geom_col() +
+  facet_wrap(~component, scales = "free_y") +
+  scale_y_reordered() +
+  labs(
+    x = "Absolute value of contribution",
+    y = NULL, fill = "Positive?"
+  )
+
+juice(cocktail_pca_prep) %>%
+  ggplot(aes(PC1, PC2, label = name)) +
+  geom_point(aes(color = category), alpha = 0.7, size = 2) +
+  geom_text(check_overlap = TRUE, hjust = "inward", family = "IBMPlexSans") +
+  labs(color = NULL)
+#
+# UN Voting: PCA ====
+# - Preprocess
+unvotes_pca_rec <- 
+  recipe( ~ ., data = unvotes_df) %>% 
+  update_role(country, new_role = "id") %>% 
+  step_normalize(all_predictors()) %>% 
+  step_pca(all_predictors())
+
+unvotes_pca_prep <- prep(unvotes_pca_rec)
+# - Visual
+bake(unvotes_pca_prep, new_data = NULL) %>% 
+  ggplot(aes(PC1, PC2, label = country)) +
+  geom_point(color = "midnightblue", alpha = 0.7, size = 2) +
+  geom_text(check_overlap = TRUE, hjust = "inward")
+
+# - Issues
+unvotes_pca_issues_comps <- tidy(unvotes_pca_prep, 2) %>% 
+  filter(component %in% c("PC1","PC2","PC3","PC4")) %>% 
+  left_join(issues %>% 
+              mutate(terms = paste0("rcid_", rcid))) %>% 
+  filter(!is.na(issue)) %>% 
+  group_by(component) %>% 
+  slice_max(abs(value), n = 8) %>% 
+  ungroup()
+# - visual
+unvotes_pca_issues_comps %>% 
+  mutate(value = abs(value)) %>% 
+  ggplot(aes(value, terms, fill = issue)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ component, scales = "free_y") +
+  labs(y = NULL, fill = NULL, x = "Abs Value of Contribution")
+#
 # MODEL FITTING: (workflows | tune) ----
 model_db
 # Ames Housing: Linear Regression ====
