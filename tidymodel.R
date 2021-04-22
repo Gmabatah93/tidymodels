@@ -1,3 +1,4 @@
+library(forcats)
 library(tidymodels)
 theme_set(theme_minimal())
 library(workflowsets)
@@ -237,6 +238,110 @@ hotels_split <- initial_split(hotels_df)
 hotels_train <- training(hotels_split)
 hotels_test <- testing(hotels_split)
 #
+# The Office ====
+
+# Data
+ratings_raw <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-03-17/office_ratings.csv")
+office <- schrute::theoffice
+
+remove_regex <- "[:punct:]|[:digit:] |parts |part |the |and"
+
+office_ratings <- ratings_raw %>%
+  transmute(
+    episode_name = str_to_lower(title),
+    episode_name = str_remove_all(episode_name, remove_regex),
+    episode_name = str_trim(episode_name),
+    imdb_rating
+  )
+
+office_info <- office %>%
+  mutate(
+    season = as.numeric(season),
+    episode = as.numeric(episode),
+    episode_name = str_to_lower(episode_name),
+    episode_name = str_remove_all(episode_name, remove_regex),
+    episode_name = str_trim(episode_name)
+  ) %>%
+  select(season, episode, episode_name, director, writer, character)
+
+office_characters <- office_info %>% 
+  count(episode_name, character) %>% 
+  add_count(character, wt = n, name = "character_count") %>% 
+  filter(character_count > 800) %>% 
+  select(-character_count) %>% 
+  pivot_wider(names_from = character, 
+              values_from = n,
+              values_fill = list(n = 0))
+
+office_creators <- office_info %>% 
+  distinct(episode_name, director, writer) %>% 
+  pivot_longer(director:writer, 
+               names_to = "role",
+               values_to = "person") %>% 
+  separate_rows(person, sep = ";") %>% 
+  add_count(person) %>% 
+  filter(n > 10) %>% 
+  distinct(episode_name, person) %>% 
+  mutate(person_value = 1) %>% 
+  pivot_wider(names_from = person,
+              values_from = person_value,
+              values_fill = list(person_value = 0))
+  
+office_model_data <- office_info %>% 
+  distinct(season, episode, episode_name) %>% 
+  inner_join(office_characters) %>% 
+  inner_join(office_creators) %>% 
+  inner_join(office_ratings) %>% 
+  janitor::clean_names()
+
+# EDA
+office_model_data %>% 
+  ggplot(aes(season, imdb_rating, fill = as.factor(season))) +
+  geom_boxplot(show.legend = FALSE)
+
+# Split
+office_split <- initial_split(office_model_data, strata = season)
+office_train <- training(office_split)
+office_test <- testing(office_split)
+# - bootstrap
+office_boot <- bootstraps(office_train, strata = season)
+
+#
+# Food Consumption ====
+
+# Data
+food_consumption <- readr::read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-02-18/food_consumption.csv")
+
+# - clean
+food_df <- food_consumption %>% 
+  mutate(continent = countrycode::countrycode(country, 
+                                              origin = "country.name",
+                                              destination = "continent")) %>% 
+  select(-co2_emmission) %>% 
+  pivot_wider(names_from = food_category,
+              values_from = consumption) %>% 
+  janitor::clean_names() %>% 
+  mutate(asia = case_when(continent == "Asia" ~ "Asia",
+                          TRUE ~ "Other")) %>% 
+  select(-country, -continent) %>% 
+  mutate_if(is.character, factor)
+
+# EDA
+library(GGally)
+
+food_df %>% 
+  ggscatmat(columns = 1:11, color = "asia", alpha = 0.6)
+
+# Split
+set.seed(1234)
+
+food_split <- initial_split(food_df, strata = asia)
+food_train <- training(food_split)
+food_test <- testing(food_split)
+# - bootstrap
+food_boot <- bootstraps(food_train, times = 30)
+
+#
 # FEATURE ENGINEERING: (recipes) ----
 # Ames Housing ====
 ames_recipe <- 
@@ -399,6 +504,20 @@ hotel_test_prep <- bake(hotels_rec, new_data = hotels_test)
 
 
 #
+#
+# The Office ====
+office_rec <- 
+  recipe(imdb_rating ~ ., data = office_train) %>% 
+  update_role(episode_name, new_role = "ID") %>% 
+  step_zv(all_numeric(), -all_outcomes()) %>% 
+  step_normalize(all_numeric(), -all_outcomes())
+office_prep <- prep(office_rec)
+
+#
+
+# Food Consumption ====
+food_rec <- 
+  recipe(asia ~ ., data = food_train)
 #
 # MODEL FITTING: (workflows | tune) ----
 model_db
@@ -905,6 +1024,96 @@ hotels_dt_res <-
 # - eval
 hotels_dt_res %>% collect_metrics()
 
+#
+# The Office: Lasso Regression ====
+
+# Spec
+office_spec <- 
+  linear_reg(penalty = tune(),
+             mixture = 1) %>% 
+  set_engine("glmnet")
+
+# Workflow
+office_wflow <- 
+  workflow() %>% 
+  add_recipe(office_rec) %>% 
+  add_model(office_spec)
+
+# Resample
+set.seed(1234)
+
+office_lasso_grid <- 
+  grid_regular(penalty(),
+               levels = 50)
+# - fit
+office_lasso_resample <- 
+  tune_grid(office_wflow,
+            resamples = office_boot,
+            grid = office_lasso_grid)
+# - visual
+office_lasso_resample %>% 
+  collect_metrics() %>% 
+  ggplot(aes(penalty, mean, color = .metric)) +
+  geom_line(size = 1.5, show.legend = FALSE) +
+  geom_ribbon(aes(ymin = mean - std_err,
+                  ymax = mean + std_err),
+                alpha = 0.1) +
+  facet_wrap(~ .metric, scale = "free", nrow = 2) +
+  scale_x_log10() + 
+  theme_bw() + 
+  theme(legend.position = "none")
+# - best
+office_lasso_best <- 
+  office_lasso_resample %>% 
+  select_best("rmse")
+# - final: workflow
+office_lasso_wflow_FINAL <- 
+  finalize_workflow(office_wflow,
+                    office_lasso_best)
+# - final: fit
+office_lasso_FINAL <- 
+  office_lasso_wflow_FINAL %>% 
+  fit(office_train)
+# OR
+last_fit(office_lasso_wflow_FINAL,
+         office_split) %>% 
+  collect_metrics()
+
+office_lasso_FINAL %>% 
+  pull_workflow_fit() %>% 
+  vip::vi(lambda = office_lasso_best$penalty) %>% 
+  mutate(Importance = abs(Importance),
+         Variable = fct_reorder(Variable, Importance)) %>% 
+  ggplot(aes(Importance, Variable, fill = Sign)) +
+  geom_col()
+#
+# Food Consumption: Random Forrest ====
+
+# Spec
+food_rf_spec <- 
+  rand_forest(
+    mtry = tune(),
+    trees = 1000,
+    min_n = tune()
+  ) %>% 
+  set_engine("ranger") %>% 
+  set_mode("classification")
+
+# Workflow
+food_rf_wflow <- 
+  workflow() %>% 
+  add_model(food_rf_spec) %>% 
+  add_recipe(food_rec)
+
+# Hyperparameters
+food_fit <- 
+  food_rf_wflow %>% 
+  tune_grid(
+    resamples = food_boot
+  )
+# - eval
+food_fit %>% collect_metrics()
+food_fit %>% select_best("roc_auc")
 #
 # MODEL EVALUATION: (yardstick) ----
 # Home Sales ====
