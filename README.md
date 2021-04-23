@@ -33,6 +33,7 @@ _single partition that is set aside to estimate performance, before using the te
 _Was originally invented as a method for approximating the sampling distribution of statistics whose theoretical properties are intractable. A bootstrap sample of the training set is a sample that is the same size as the training set but is drawn with replacement. This means that some training set data points are selected multiple times for the analysis set. Each data point has a 63.2% chance of inclusion in the training set at least once. The assessment set contains all of the training set samples that were not selected for the analysis set (on average, with 36.8% of the training set). When bootstrapping, the assessment set is often called the “out-of-bag” sample._
 
 #### Functions
+**(rsample)**
 
 Function | Description | Parameters
 --- | --- | ---
@@ -61,6 +62,7 @@ bake() | Apply a Trained Data Recipe | object, new_data
 step_log() | creates a specification of a recipe step that will log transform data | recipe, base, columns
 step_dummy() | dummy variable creation | recipe, one_hot, naming
 step_normalize | Center and Scale numeric data | recipe
+step_YeoJohnson | Yeo-Johnson Transformation | recipe, lambdas
 step_unknown() | Assign missing categories to "unknown" | recipe, new_level
 step_other() | creates a specification of a recipe step that will potentially pool infrequently occurring values into an "other" category | recipe, threshold
 step_interact() | creates interaction variables | recipe, terms
@@ -85,9 +87,11 @@ step_upsample() | Up-Sample a Data Set Based on a Factor Variable | recipe, over
 Function | Description | Parameters
 --- | --- | ---
 parameters() | Determination of parameter sets for other objects |
+fit_resamples() | computes a set of performance metrics across one or more resamples. It does not perform any tuning, and is instead used for fitting a single model+recipe or model+formula combination across many resamples | object _(model spec of workflow)_, resamples, metrics, control
 tune_grid() | computes a set of performance metrics (e.g. accuracy or RMSE) for a pre-defined set of tuning parameters that correspond to a model or recipe across one or more resamples of the data | object, resamples, param_info, grid, metrics, control
 tune_bayes() | Bayesian optimization of model parameters | object, iter, initial, objective, param_info, control
-tune_sim_anneal() |   
+control_resamples() / control_grid() | Control aspects of the Grid Search process | verbose, allow_par, extract, save_pred, save_workflow, event_level, parallel_over("resamples","everything")   
+tune_sim_anneal() | |
 
 **(dials)**
 
@@ -111,6 +115,32 @@ decision_tree() | General Interface for Decision Tree Models | cost_complexity, 
 rand_forest() | General Interface for Random Forest Models | mtry, trees, min_n
 boost_tree() | General Interface for Boosted Trees | mtry, trees, min_n, tree_depth, learn_rate, loss_reduction, sample_size, stor_iter
 surv_reg() | General Interface for Parametric Survival Models | dist
+
+**(workflow)**
+
+Function | Description | Parameters
+--- | --- | ---
+workflow() | container object that aggregates information required to fit and predict from a model. This information might be a recipe used in preprocessing, specified through add_recipe(), or the model specification to fit, specified through add_model() |
+add_formula() / remove_formula() / update_formula() | Add formula terms to a workflow | x, formula
+add_recipe() / remove_recipe() / update_recipe() | Add a recipe to a workflow | x, recipe
+add_model() / remove_model() / update_model() | Add a model to a workflow | x, spec, formula
+fit() | Fit a workflow object | object, data, control
+pull_workflow_preprocessor() | returns the formula, recipe, or variable expressions used for preprocessing | x
+pull_workflow_spec() | returns the parsnip model specification | x
+pull_workflow_fit() | returns the parsnip model fit | x
+predict() | Predict from a workflow | object, new_data, type
+augment() | |
+tidy() | |
+
+
+**(workflowsets)**
+
+Function | Description | Parameters
+--- | --- | ---
+workflow_set() | Generate a set of workflow objects from preprocessing and model objects | preproc, models, cross
+pull_workflow() | extracts the unfitted workflow from the info column | x, id
+pull_workflow_set_results() | retrieves the results of workflow_map() for a particular workflow | x, id
+option_add() | These functions are helpful for manipulating the information in the option column | x, ..., id, strict
 
 # Model Evaluation
 > Bias is the difference between the true data pattern and the types of patterns that the model can emulate. Many black-box machine learning models have low bias. Other models (such as linear/logistic regression, discriminant analysis, and others) are not as adaptable and are considered high-bias models.
