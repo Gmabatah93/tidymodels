@@ -141,6 +141,8 @@ workflow_set() | Generate a set of workflow objects from preprocessing and model
 pull_workflow() | extracts the unfitted workflow from the info column | x, id
 pull_workflow_set_results() | retrieves the results of workflow_map() for a particular workflow | x, id
 option_add() | These functions are helpful for manipulating the information in the option column | x, ..., id, strict
+workflow_map() | execute the same function across the workflows in the set. The various tune_*() functions can be used as well as fit_resamples() | object, fn("tune_"), verbose, seed
+autoplot() | Plot the results of a workflow set | object, rank_metric, metric, id, select_best
 
 # Model Evaluation
 > Bias is the difference between the true data pattern and the types of patterns that the model can emulate. Many black-box machine learning models have low bias. Other models (such as linear/logistic regression, discriminant analysis, and others) are not as adaptable and are considered high-bias models.
