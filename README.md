@@ -75,6 +75,17 @@ step_upsample() | Up-Sample a Data Set Based on a Factor Variable | recipe, over
 ## Grid Search
 **Regular Grid**: each parameter has a corresponding set of possible values
 **Non-Regular Grid**: parameter combinations are not formed from a small set of points.
+- **_Latin Hypercube_**
+  + In the context of statistical sampling, a square grid containing sample positions is a Latin Square if and only if there is one sample in each row and each column
+  + A Latin Hypercube is the generalization of this concept to an arbitrary number of dimensions, whereby each sample is the only one in each axis-aligned hyperplane containing it. 
+  + **Method**
+    + Stratification of the input probability distribution
+    + Stratification divides the cumulative curve into equal intervals
+    + A sample is then randomly taken from each interval or "stratification"
+  + Recreate the input distribution through less samples
+  + Allows the creation of experimental designs with as many points as needed or desired
+  + For computer experiments, an attractive sampling technique would have to be flexible enough to provide data a) for modeling techniques based on very different statistical assumptions and b) capable of covering small and large design spaces
+  + If few dimensions have to be dropped out, the resulting design is still a Latin Hypercube because samples are non-collasping
 
 ## Iterative Search
 **Bayesian Optimization**: analyze the current resampling results and create a predictive model to suggest tuning parameter values that have yet to be evaluated. The suggested parameter combination is then resampled. These results are then used in another predictive model that recommends more candidate values for testing, and so on. The process proceeds for a set number of iterations or until no further improvements occur.
