@@ -74,10 +74,14 @@ step_upsample() | Up-Sample a Data Set Based on a Factor Variable | recipe, over
 
 ## Grid Search
 **Regular Grid**: each parameter has a corresponding set of possible values
-**Non-Regular Grid**: parameter combinations are not formed from a small set of points.
-- **_Latin Hypercube_**
+**Random Grid**: independent uniform random numbers across parameter ranges. (Simple Random Sampling with respect to variance for a class estimators)
+  + _Issue with random grid is that with small-to-medium grids, random values can result in overlapping parameter combinations_
+  + _Also, it needs to cover the whole parameter space but the likihood of good coverage increases with the number of grid values_
+
+### Space Filling Design
+**_Latin Hypercube_**
   + In the context of statistical sampling, a square grid containing sample positions is a Latin Square if and only if there is one sample in each row and each column
-  + A Latin Hypercube is the generalization of this concept to an arbitrary number of dimensions, whereby each sample is the only one in each axis-aligned hyperplane containing it. 
+  + A Latin Hypercube is the generalization of this concept to an arbitrary number of dimensions, whereby each sample is the only one in each axis-aligned hyperplane containing it.
   + **Method**
     + Stratification of the input probability distribution
     + Stratification divides the cumulative curve into equal intervals
@@ -109,7 +113,7 @@ tune_sim_anneal() | |
 Function | Description | Parameters
 --- | --- | ---
 grid_regular() | Create grids of tuning parameters | x, levels
-grid_random() | Create grids of tuning parameters | x, levels
+grid_random() | Create independent uniform random numbers across parameter ranges | x, size
 grid_max_entropy() | |
 grid_latin_hypercube() | |
 
